@@ -1,6 +1,8 @@
 /***************************************************************************
 *  Copyright (C) Codeplay Software Limited
 *  Copyright (C) 2022 Heidelberg University, Engineering Mathematics and Computing Lab (EMCL) and Computing Centre (URZ)
+*  Modified 2026 by MistVVK and the XeStrata contributors: GEMM with 16-bit inputs and FP32 output
+*  through hipBLASLt where it has kernels for the GPU.
 *
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
@@ -21,6 +23,11 @@
 
 #include "rocblas_helper.hpp"
 #include "rocblas_task.hpp"
+#ifdef ONEMATH_ROCBLAS_HIPBLASLT
+#include "rocblas_hipblaslt.hpp"
+#endif
+
+#include <type_traits>
 
 #include "oneapi/math/exceptions.hpp"
 #include "oneapi/math/blas/detail/rocblas/onemath_blas_rocblas.hpp"
@@ -511,6 +518,21 @@ inline sycl::event gemm_ex(Func func, DATATYPE_A DT_A, DATATYPE_B DT_B, DATATYPE
         cgh.depends_on(dependencies);
         onemath_rocblas_host_task(cgh, queue, [=](RocblasScopedContextHandler& sc) {
             auto handle = sc.get_handle(queue);
+#ifdef ONEMATH_ROCBLAS_HIPBLASLT
+            // 16-bit inputs, FP32 output and scaling: hipBLASLt first, where it has kernels for the GPU, on the
+            // stream the handle has for the queue
+            if constexpr (std::is_same_v<T_A, T_B> && std::is_same_v<T_C, float> &&
+                          std::is_same_v<T_S, float> &&
+                          (std::is_same_v<T_A, sycl::half> || std::is_same_v<T_A, bfloat16>)) {
+                hipStream_t stream;
+                if (rocblas_get_stream(handle, &stream) == rocblas_status_success &&
+                    hipblaslt_gemm(stream, get_rocblas_operation(transa),
+                                   get_rocblas_operation(transb), m, n, k, alpha, a, lda, b, ldb,
+                                   beta, c, ldc,
+                                   std::is_same_v<T_A, sycl::half> ? HIP_R_16F : HIP_R_16BF))
+                    return;
+            }
+#endif
 
             auto a_ = reinterpret_cast<const rocDataType_A*>(a);
             auto b_ = reinterpret_cast<const rocDataType_B*>(b);

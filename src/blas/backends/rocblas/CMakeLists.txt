@@ -1,6 +1,7 @@
 #==========================================================================
 #  Copyright (C) Codeplay Software Limited
 #  Copyright (C) 2022 Heidelberg University, Engineering Mathematics and Computing Lab (EMCL) and Computing Centre (URZ)
+#  Modified 2026 by MistVVK and the XeStrata contributors: hipBLASLt for the GEMMs with 16-bit inputs.
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -24,12 +25,15 @@ set(LIB_OBJ ${LIB_NAME}_obj)
 find_package(hip REQUIRED)
 find_package(rocblas REQUIRED)
 find_package(Threads REQUIRED)
+# hipBLASLt for the GEMMs with 16-bit inputs where it has kernels for the GPU (rocblas_hipblaslt.cpp), when installed
+find_package(hipblaslt QUIET)
 
 set(SOURCES rocblas_level1.cpp
                 rocblas_level2.cpp
                 rocblas_level3.cpp
                 rocblas_batch.cpp
                 rocblas_extensions.cpp
+                $<$<BOOL:${hipblaslt_FOUND}>:rocblas_hipblaslt.cpp>
                 $<$<STREQUAL:${ONEMATH_SYCL_IMPLEMENTATION},dpc++>:rocblas_scope_handle.cpp >
                 $<$<STREQUAL:${ONEMATH_SYCL_IMPLEMENTATION},adaptivecpp>:rocblas_scope_handle_adaptivecpp.cpp >
                 $<$<BOOL:${BUILD_SHARED_LIBS}>: rocblas_wrappers.cpp>)
@@ -61,6 +65,10 @@ else()
 endif()
 
 target_link_libraries(${LIB_OBJ} PRIVATE roc::rocblas hip::host Threads::Threads)
+if(hipblaslt_FOUND)
+  target_link_libraries(${LIB_OBJ} PRIVATE roc::hipblaslt)
+  target_compile_definitions(${LIB_OBJ} PRIVATE ONEMATH_ROCBLAS_HIPBLASLT)
+endif()
 target_link_libraries(${LIB_OBJ} PUBLIC ONEMATH::SYCL::SYCL)
 target_compile_features(${LIB_OBJ} PUBLIC cxx_std_17)
 set_target_properties(${LIB_OBJ} PROPERTIES
