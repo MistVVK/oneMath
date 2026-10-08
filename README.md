@@ -1,5 +1,8 @@
 <img src="https://github.com/uxlfoundation/artwork/blob/main/foundation/uxl-foundation-logo-horizontal-color.png" alt="UXL Foundation Logo" width="250"/>
 
+> [!NOTE]
+> The rocBLAS backend runs GEMM with FP16 or BF16 inputs and FP32 output through hipBLASLt, when CMake finds hipBLASLt and it has a kernel for the GPU and shape (rocBLAS otherwise). rocBLAS has no tuned kernels for some GPUs, such as RDNA4's gfx12 in ROCm 7.1. `ONEMATH_HIPBLASLT=0` turns it off at run time.
+
 # oneAPI Math Library (oneMath)
 
 [![OpenSSF
