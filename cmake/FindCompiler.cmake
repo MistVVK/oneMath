@@ -1,5 +1,6 @@
 #===============================================================================
 # Copyright 2020-2021 Intel Corporation
+# Modified 2026 by MistVVK and the XeStrata contributors: the rocBLAS backend's AMD target left to the backend.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,8 +50,8 @@ if(is_dpcpp)
         -fsycl-targets=nvptx64-nvidia-cuda -fsycl-unnamed-lambda)
       list(APPEND UNIX_INTERFACE_LINK_OPTIONS
         -fsycl-targets=nvptx64-nvidia-cuda)
-    elseif(ENABLE_ROCBLAS_BACKEND OR ENABLE_ROCRAND_BACKEND
-                OR ENABLE_ROCSOLVER_BACKEND OR ENABLE_ROCSPARSE_BACKEND)
+    # (the rocBLAS backend sets the AMD target on its own library, src/blas/backends/rocblas/CMakeLists.txt)
+    elseif(ENABLE_ROCRAND_BACKEND OR ENABLE_ROCSOLVER_BACKEND OR ENABLE_ROCSPARSE_BACKEND)
       list(APPEND UNIX_INTERFACE_COMPILE_OPTIONS
         -fsycl-targets=amdgcn-amd-amdhsa -fsycl-unnamed-lambda 
 	-Xsycl-target-backend --offload-arch=${HIP_TARGETS})
@@ -58,7 +59,7 @@ if(is_dpcpp)
         -fsycl-targets=amdgcn-amd-amdhsa -Xsycl-target-backend 
 	--offload-arch=${HIP_TARGETS})
     endif()
-    if(ENABLE_CURAND_BACKEND OR ENABLE_CUSOLVER_BACKEND OR ENABLE_CUSPARSE_BACKEND OR ENABLE_ROCBLAS_BACKEND
+    if(ENABLE_CURAND_BACKEND OR ENABLE_CUSOLVER_BACKEND OR ENABLE_CUSPARSE_BACKEND
 	    OR ENABLE_ROCRAND_BACKEND OR ENABLE_ROCSOLVER_BACKEND OR ENABLE_ROCSPARSE_BACKEND)
       set_target_properties(ONEMATH::SYCL::SYCL PROPERTIES
         INTERFACE_COMPILE_OPTIONS "${UNIX_INTERFACE_COMPILE_OPTIONS}"

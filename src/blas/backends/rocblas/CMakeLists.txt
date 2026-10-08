@@ -2,6 +2,7 @@
 #  Copyright (C) Codeplay Software Limited
 #  Copyright (C) 2022 Heidelberg University, Engineering Mathematics and Computing Lab (EMCL) and Computing Centre (URZ)
 #  Modified 2026 by MistVVK and the XeStrata contributors: hipBLASLt for the GEMMs with 16-bit inputs.
+#  Modified 2026 by MistVVK and the XeStrata contributors: the AMD target on this backend's own library only.
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -50,18 +51,19 @@ target_include_directories(${LIB_OBJ}
           ${ONEMATH_GENERATED_INCLUDE_PATH}
 )
 
+# The AMD target on this backend's library only, not on ONEMATH::SYCL::SYCL, which every library shares: with the
+# cuBLAS backend in the same build, the two backends' targets and options were mixed (the CUDA compile got the AMD
+# architecture)
 if(NOT ${ONEMATH_SYCL_IMPLEMENTATION} STREQUAL "adaptivecpp")
     target_compile_options(${LIB_OBJ} PRIVATE ${ONEMATH_BUILD_COPT})
-    target_compile_options(ONEMATH::SYCL::SYCL INTERFACE
+    target_compile_options(${LIB_OBJ} PRIVATE
         -fsycl-targets=amdgcn-amd-amdhsa -fsycl-unnamed-lambda
-        -Xsycl-target-backend --offload-arch=${HIP_TARGETS})
-    target_link_options(ONEMATH::SYCL::SYCL INTERFACE
-        -fsycl-targets=amdgcn-amd-amdhsa -Xsycl-target-backend
+        -Xsycl-target-backend=amdgcn-amd-amdhsa --offload-arch=${HIP_TARGETS})
+    target_link_options(${LIB_NAME} PRIVATE
+        -fsycl-targets=amdgcn-amd-amdhsa -Xsycl-target-backend=amdgcn-amd-amdhsa
         --offload-arch=${HIP_TARGETS})
 else()
     target_compile_options(${LIB_OBJ} PRIVATE ${ONEMATH_BUILD_COPT})
-    target_compile_options(ONEMATH::SYCL::SYCL INTERFACE)
-    target_link_options(ONEMATH::SYCL::SYCL INTERFACE)
 endif()
 
 target_link_libraries(${LIB_OBJ} PRIVATE roc::rocblas hip::host Threads::Threads)

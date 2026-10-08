@@ -1,5 +1,6 @@
 #==========================================================================
 #  Copyright (C) Codeplay Software Limited
+#  Modified 2026 by MistVVK and the XeStrata contributors: the NVIDIA target on this backend's own library only.
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at
@@ -41,20 +42,23 @@ target_include_directories(${LIB_OBJ}
 )
 target_compile_options(${LIB_OBJ} PRIVATE ${ONEMATH_BUILD_COPT})
 
+# The NVIDIA target on this backend's library only, not on ONEMATH::SYCL::SYCL, which every library shares: with the
+# rocBLAS backend in the same build, the two backends' targets and options were mixed (the CUDA compile got the AMD
+# architecture)
 if (NOT "${ONEMATH_SYCL_IMPLEMENTATION}" STREQUAL "adaptivecpp")
-  target_compile_options(ONEMATH::SYCL::SYCL INTERFACE
+  target_compile_options(${LIB_OBJ} PRIVATE
     -fsycl-targets=nvptx64-nvidia-cuda -fsycl-unnamed-lambda
   )
-  target_link_options(ONEMATH::SYCL::SYCL INTERFACE
+  target_link_options(${LIB_NAME} PRIVATE
     -fsycl-targets=nvptx64-nvidia-cuda
   )
 
   if (DEFINED CUDA_TARGETS AND NOT "${CUDA_TARGETS}" STREQUAL "")
-    target_compile_options(ONEMATH::SYCL::SYCL INTERFACE
-      -Xsycl-target-backend --cuda-gpu-arch=${CUDA_TARGETS}
+    target_compile_options(${LIB_OBJ} PRIVATE
+      -Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${CUDA_TARGETS}
     )
-    target_link_options(ONEMATH::SYCL::SYCL INTERFACE
-      -Xsycl-target-backend --cuda-gpu-arch=${CUDA_TARGETS}
+    target_link_options(${LIB_NAME} PRIVATE
+      -Xsycl-target-backend=nvptx64-nvidia-cuda --cuda-gpu-arch=${CUDA_TARGETS}
     )
   endif()
 endif()
