@@ -49,6 +49,9 @@
 #ifdef ONEMATH_ENABLE_NETLIB_BACKEND
 #include "oneapi/math/blas/detail/netlib/blas_ct.hpp"
 #endif
+#ifdef ONEMATH_ENABLE_OPENBLAS_BACKEND
+#include "oneapi/math/blas/detail/openblas/blas_ct.hpp"
+#endif
 #ifdef ONEMATH_ENABLE_ARMPL_BACKEND
 #include "oneapi/math/blas/detail/armpl/blas_ct.hpp"
 #endif
