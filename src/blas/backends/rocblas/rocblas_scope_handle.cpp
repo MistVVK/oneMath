@@ -1,6 +1,8 @@
 /***************************************************************************
 *  Copyright 2020-2022 Intel Corporation
 *  Copyright (C) Codeplay Software Limited
+*  Modified 2026 by MistVVK and the XeStrata contributors: the device made current with hipSetDevice and
+*  the handles kept per device, in place of HIP's deprecated context API.
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
 *  You may obtain a copy of the License at
@@ -50,41 +52,29 @@ rocblas_handle_container<T>::~rocblas_handle_container() noexcept(false) {
  * takes place if no other element in the container has a key equivalent to
  * the one being emplaced (keys in a map container are unique).
  */
-#ifdef ONEMATH_PI_INTERFACE_REMOVED
-thread_local rocblas_handle_container<ur_context_handle_t>
-    RocblasScopedContextHandler::handle_helper = rocblas_handle_container<ur_context_handle_t>{};
-#else
-thread_local rocblas_handle_container<pi_context> RocblasScopedContextHandler::handle_helper =
-    rocblas_handle_container<pi_context>{};
-#endif
+thread_local rocblas_handle_container<int> RocblasScopedContextHandler::handle_helper =
+    rocblas_handle_container<int>{};
 
 RocblasScopedContextHandler::RocblasScopedContextHandler(sycl::queue queue,
                                                          sycl::interop_handle& ih)
         : interop_h(ih),
           needToRecover_(false) {
     placedContext_ = new sycl::context(queue.get_context());
-    auto hipDevice = ih.get_native_device<sycl::backend::ext_oneapi_hip>();
+    int hipDevice = ih.get_native_device<sycl::backend::ext_oneapi_hip>();
     hipError_t err;
-    hipCtx_t desired;
-    HIP_ERROR_FUNC(hipCtxGetCurrent, err, &original_);
-    HIP_ERROR_FUNC(hipDevicePrimaryCtxRetain, err, &desired, hipDevice);
-    if (original_ != desired) {
-        // Sets the desired context as the active one for the thread
-        HIP_ERROR_FUNC(hipCtxSetCurrent, err, desired);
-        // No context is installed and the suggested context is primary
-        // This is the most common case. We can activate the context in the
-        // thread and leave it there until all the PI context referring to the
-        // same underlying rocblas primary context are destroyed. This emulates
-        // the behaviour of the rocblas runtime api, and avoids costly context
-        // switches. No action is required on this side of the if.
-        needToRecover_ = !(original_ == nullptr);
+    // The device made current selects its primary context (HIP's context API is deprecated); the
+    // previous one comes back in the destructor
+    HIP_ERROR_FUNC(hipGetDevice, err, &original_);
+    if (original_ != hipDevice) {
+        HIP_ERROR_FUNC(hipSetDevice, err, hipDevice);
+        needToRecover_ = true;
     }
 }
 
 RocblasScopedContextHandler::~RocblasScopedContextHandler() noexcept(false) {
     if (needToRecover_) {
         hipError_t err;
-        HIP_ERROR_FUNC(hipCtxSetCurrent, err, original_);
+        HIP_ERROR_FUNC(hipSetDevice, err, original_);
     }
     delete placedContext_;
 }
@@ -109,18 +99,10 @@ void ContextCallback(void* userData) {
 }
 
 rocblas_handle RocblasScopedContextHandler::get_handle(const sycl::queue& queue) {
-    auto hipDevice = interop_h.get_native_device<sycl::backend::ext_oneapi_hip>();
-    hipError_t hipErr;
-    hipCtx_t desired;
-    HIP_ERROR_FUNC(hipDevicePrimaryCtxRetain, hipErr, &desired, hipDevice);
-#ifdef ONEMATH_PI_INTERFACE_REMOVED
-    auto piPlacedContext_ = reinterpret_cast<ur_context_handle_t>(desired);
-#else
-    auto piPlacedContext_ = reinterpret_cast<pi_context>(desired);
-#endif
+    int hipDevice = interop_h.get_native_device<sycl::backend::ext_oneapi_hip>();
     hipStream_t streamId = get_stream(queue);
     rocblas_status err;
-    auto it = handle_helper.rocblas_handle_container_mapper_.find(piPlacedContext_);
+    auto it = handle_helper.rocblas_handle_container_mapper_.find(hipDevice);
     if (it != handle_helper.rocblas_handle_container_mapper_.end()) {
         if (it->second == nullptr) {
             handle_helper.rocblas_handle_container_mapper_.erase(it);
@@ -147,7 +129,7 @@ rocblas_handle RocblasScopedContextHandler::get_handle(const sycl::queue& queue)
     ROCBLAS_ERROR_FUNC(rocblas_set_stream, err, handle, streamId);
 
     auto insert_iter = handle_helper.rocblas_handle_container_mapper_.insert(
-        std::make_pair(piPlacedContext_, new std::atomic<rocblas_handle>(handle)));
+        std::make_pair(hipDevice, new std::atomic<rocblas_handle>(handle)));
 
     sycl::detail::pi::contextSetExtendedDeleter(*placedContext_, ContextCallback,
                                                 insert_iter.first->second);

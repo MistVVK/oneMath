@@ -1,6 +1,8 @@
 /***************************************************************************
 *  Copyright 2020-2022 Intel Corporation
 *  Copyright (C) Codeplay Software Limited
+*  Modified 2026 by MistVVK and the XeStrata contributors: the device made current with hipSetDevice and
+*  the handles kept per device, in place of HIP's deprecated context API.
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
 *  You may obtain a copy of the License at
@@ -55,15 +57,12 @@ struct rocblas_handle_container {
 };
 
 class RocblasScopedContextHandler {
-    HIPcontext original_;
+    int original_;
     sycl::context* placedContext_;
     bool needToRecover_;
     sycl::interop_handle& interop_h;
-#ifdef ONEMATH_PI_INTERFACE_REMOVED
-    static thread_local rocblas_handle_container<ur_context_handle_t> handle_helper;
-#else
-    static thread_local rocblas_handle_container<pi_context> handle_helper;
-#endif
+    // the handles by HIP device ordinal (a device has one primary context)
+    static thread_local rocblas_handle_container<int> handle_helper;
     sycl::context get_context(const sycl::queue& queue);
     hipStream_t get_stream(const sycl::queue& queue);
 
