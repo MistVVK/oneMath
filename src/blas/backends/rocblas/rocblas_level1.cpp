@@ -1,6 +1,7 @@
 /***************************************************************************
 *  Copyright (C) Codeplay Software Limited
 *  Copyright (C) 2022 Heidelberg University, Engineering Mathematics and Computing Lab (EMCL) and Computing Centre (URZ)
+*  Modified 2026 by MistVVK and the XeStrata contributors: sdsdot's result read with get_host_access.
 *
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
@@ -392,7 +393,7 @@ void sdsdot(sycl::queue& queue, int64_t n, float sb, sycl::buffer<float, 1>& x, 
 
     // Since SB is a host pointer we need to bring the result back to the host and
     // add sb to it.
-    result.get_access<sycl::access::mode::read_write>()[0] += sb;
+    result.get_host_access()[0] += sb;
 }
 
 template <typename Func, typename T>
