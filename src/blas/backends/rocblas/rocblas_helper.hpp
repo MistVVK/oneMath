@@ -1,6 +1,7 @@
 /***************************************************************************
 *  Copyright (C) Codeplay Software Limited
 *  Copyright (C) 2022 Heidelberg University, Engineering Mathematics and Computing Lab (EMCL) and Computing Centre (URZ)
+*  Modified 2026 by MistVVK and the XeStrata contributors: HIP's results compared with hipSuccess.
 *
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
@@ -153,7 +154,7 @@ public:
 
 #define HIP_ERROR_FUNC(name, err, ...)                                 \
     err = name(__VA_ARGS__);                                           \
-    if (err != HIP_SUCCESS) {                                          \
+    if (err != hipSuccess) {                                           \
         throw hip_error(std::string(#name) + std::string(" : "), err); \
     }
 
