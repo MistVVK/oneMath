@@ -1,6 +1,8 @@
 #===============================================================================
 # Copyright 2020-2022 Intel Corporation
 # Copyright (C) 2022 Heidelberg University, Engineering Mathematics and Computing Lab (EMCL) and Computing Centre (URZ)
+# Modified 2026 by MistVVK and the XeStrata contributors: Windows built with the GNU-style clang++ driver (a cross
+# build from Linux) takes the compile and link lines and the SYCL target of the other platforms.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -212,8 +214,9 @@ endif()
 
 project(oneMath VERSION 0.5.0 LANGUAGES CXX)
 
-# Override default CXX compile/link lines for Windows after project
-if(WIN32 AND ONEMATH_SYCL_IMPLEMENTATION STREQUAL "dpc++")
+# Override default CXX compile/link lines for Windows after project (for clang-cl and icx; the GNU-style clang++ driver
+# takes CMake's own, as on the other platforms)
+if(WIN32 AND ONEMATH_SYCL_IMPLEMENTATION STREQUAL "dpc++" AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-function -w")
   foreach (flag_var
            CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
@@ -290,7 +293,7 @@ add_subdirectory(cmake)
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 # Add DPC++ options for Linux
-if(WIN32)
+if(WIN32 AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
   add_library(ONEMATH::SYCL::SYCL INTERFACE IMPORTED)
 else()
   # Find necessary packages

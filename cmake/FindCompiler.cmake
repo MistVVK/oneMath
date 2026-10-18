@@ -1,6 +1,7 @@
 #===============================================================================
 # Copyright 2020-2021 Intel Corporation
-# Modified 2026 by MistVVK and the XeStrata contributors: the rocBLAS backend's AMD target left to the backend.
+# Modified 2026 by MistVVK and the XeStrata contributors: the rocBLAS backend's AMD target left to the backend; on
+# Windows, the GNU-style clang++ driver links with -fsycl as on Linux.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,7 +40,7 @@ if(is_dpcpp)
   endif()
 
   add_library(ONEMATH::SYCL::SYCL INTERFACE IMPORTED)
-  if(UNIX)
+  if(UNIX OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
     set(UNIX_INTERFACE_COMPILE_OPTIONS -fsycl)
     set(UNIX_INTERFACE_LINK_OPTIONS -fsycl)
     # Check if the Nvidia target is supported. PortFFT uses this for choosing default configuration.
