@@ -1,5 +1,6 @@
 #===============================================================================
 # Copyright 2020-2021 Intel Corporation
+# Modified 2026 by MistVVK and the XeStrata contributors: the cuBLAS and rocBLAS backends in a cross build for Windows.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,11 +41,13 @@ if(ENABLE_ARMPL_BACKEND AND UNIX)
   add_subdirectory(armpl)
 endif()
 
-if(ENABLE_CUBLAS_BACKEND AND UNIX)
+# a cross build for Windows from Linux gives these backends Windows' import libraries (cmake/FindcuBLAS.cmake,
+# rocblas/CMakeLists.txt)
+if(ENABLE_CUBLAS_BACKEND AND (UNIX OR CMAKE_CROSSCOMPILING))
   add_subdirectory(cublas)
 endif()
 
-if(ENABLE_ROCBLAS_BACKEND AND UNIX)
+if(ENABLE_ROCBLAS_BACKEND AND (UNIX OR CMAKE_CROSSCOMPILING))
   add_subdirectory(rocblas)
 endif()
 
