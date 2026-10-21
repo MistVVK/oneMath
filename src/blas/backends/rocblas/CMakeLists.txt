@@ -3,6 +3,7 @@
 #  Copyright (C) 2022 Heidelberg University, Engineering Mathematics and Computing Lab (EMCL) and Computing Centre (URZ)
 #  Modified 2026 by MistVVK and the XeStrata contributors: hipBLASLt for the GEMMs with 16-bit inputs.
 #  Modified 2026 by MistVVK and the XeStrata contributors: the AMD target on this backend's own library only.
+#  Modified 2026 by MistVVK and the XeStrata contributors: Windows' import libraries in a cross build from Linux.
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -23,11 +24,32 @@
 
 set(LIB_NAME onemath_blas_rocblas)
 set(LIB_OBJ ${LIB_NAME}_obj)
-find_package(hip REQUIRED)
-find_package(rocblas REQUIRED)
+# A cross build for Windows from Linux gives ROCM_WINDOWS_INCLUDE (HIP's, rocBLAS's, hipBLASLt's and hipblas-common's
+# headers), HIP_WINDOWS_LIBRARY and ROCBLAS_WINDOWS_LIBRARY, and HIPBLASLT_WINDOWS_LIBRARY where hipBLASLt is to be
+# used (Windows' import libraries): ROCm's CMake packages describe the build machine's Linux libraries
+if(CMAKE_CROSSCOMPILING AND WIN32 AND ROCM_WINDOWS_INCLUDE AND HIP_WINDOWS_LIBRARY AND ROCBLAS_WINDOWS_LIBRARY)
+  if(NOT TARGET hip::host)
+    add_library(hip::host INTERFACE IMPORTED)
+    set_target_properties(hip::host PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${ROCM_WINDOWS_INCLUDE}"
+        INTERFACE_COMPILE_DEFINITIONS __HIP_PLATFORM_AMD__ INTERFACE_LINK_LIBRARIES "${HIP_WINDOWS_LIBRARY}")
+  endif()
+  add_library(roc::rocblas UNKNOWN IMPORTED)
+  set_target_properties(roc::rocblas PROPERTIES IMPORTED_LOCATION "${ROCBLAS_WINDOWS_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${ROCM_WINDOWS_INCLUDE}")
+  if(HIPBLASLT_WINDOWS_LIBRARY)
+    add_library(roc::hipblaslt UNKNOWN IMPORTED)
+    set_target_properties(roc::hipblaslt PROPERTIES IMPORTED_LOCATION "${HIPBLASLT_WINDOWS_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${ROCM_WINDOWS_INCLUDE}")
+    set(hipblaslt_FOUND TRUE)
+  endif()
+else()
+  find_package(hip REQUIRED)
+  find_package(rocblas REQUIRED)
+  # hipBLASLt for the GEMMs with 16-bit inputs where it has kernels for the GPU (rocblas_hipblaslt.cpp), when
+  # installed
+  find_package(hipblaslt QUIET)
+endif()
 find_package(Threads REQUIRED)
-# hipBLASLt for the GEMMs with 16-bit inputs where it has kernels for the GPU (rocblas_hipblaslt.cpp), when installed
-find_package(hipblaslt QUIET)
 
 set(SOURCES rocblas_level1.cpp
                 rocblas_level2.cpp
