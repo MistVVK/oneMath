@@ -1,6 +1,7 @@
 /***************************************************************************
 *  Copyright (C) Codeplay Software Limited
 *  Copyright (C) 2022 Heidelberg University, Engineering Mathematics and Computing Lab (EMCL) and Computing Centre (URZ)
+*  Modified 2026 by MistVVK and the XeStrata contributors: the function table exported on Windows.
 *
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
@@ -19,11 +20,12 @@
 *
 **************************************************************************/
 #include "blas/function_table.hpp"
+#include "oneapi/math/detail/export.hpp"
 #include "oneapi/math/blas/detail/rocblas/onemath_blas_rocblas.hpp"
 
 #define WRAPPER_VERSION 1
 
-extern "C" blas_function_table_t onemath_blas_table = {
+extern "C" ONEMATH_EXPORT blas_function_table_t onemath_blas_table = {
     WRAPPER_VERSION,
     oneapi::math::blas::rocblas::column_major::asum,
     oneapi::math::blas::rocblas::column_major::asum,

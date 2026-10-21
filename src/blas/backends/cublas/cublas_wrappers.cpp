@@ -1,5 +1,6 @@
 /***************************************************************************
 *  Copyright (C) Codeplay Software Limited
+*  Modified 2026 by MistVVK and the XeStrata contributors: the function table exported on Windows.
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
 *  You may obtain a copy of the License at
@@ -17,11 +18,12 @@
 *
 **************************************************************************/
 #include "blas/function_table.hpp"
+#include "oneapi/math/detail/export.hpp"
 #include "oneapi/math/blas/detail/cublas/onemath_blas_cublas.hpp"
 
 #define WRAPPER_VERSION 1
 
-extern "C" blas_function_table_t onemath_blas_table = {
+extern "C" ONEMATH_EXPORT blas_function_table_t onemath_blas_table = {
     WRAPPER_VERSION,
     oneapi::math::blas::cublas::column_major::asum,
     oneapi::math::blas::cublas::column_major::asum,
