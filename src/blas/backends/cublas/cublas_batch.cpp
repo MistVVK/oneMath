@@ -1,5 +1,8 @@
 /***************************************************************************
 *  Copyright (C) Codeplay Software Limited
+*  Modified 2026 by MistVVK and the XeStrata contributors: the strided batch GEMM with int8 inputs and int32 output
+*  (column-major).
+*
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
 *  You may obtain a copy of the License at
@@ -20,6 +23,8 @@
 #include "cublas_task.hpp"
 #include "oneapi/math/exceptions.hpp"
 #include "oneapi/math/blas/detail/cublas/onemath_blas_cublas.hpp"
+
+#include <cmath>
 
 namespace oneapi {
 namespace math {
@@ -692,9 +697,40 @@ GEMM_STRIDED_BATCH_LAUNCHER_USM(std::complex<double>, std::complex<double>, std:
                                 dtype_string<TYPE_C>() + "," + dtype_string<TYPE_S>() + ">");  \
     }
 
-GEMM_STRIDED_BATCH_LAUNCHER_USM(std::int8_t, std::int8_t, std::int32_t, float)
-
 #undef GEMM_STRIDED_BATCH_LAUNCHER_USM
+
+// int8 inputs, int32 output: int32 accumulation and scaling, as cuBLAS takes it, so alpha and beta must be integers
+sycl::event gemm_batch(sycl::queue& queue, transpose transa, transpose transb, int64_t m, int64_t n,
+                       int64_t k, float alpha, const std::int8_t* a, int64_t lda, int64_t stride_a,
+                       const std::int8_t* b, int64_t ldb, int64_t stride_b, float beta, std::int32_t* c,
+                       int64_t ldc, int64_t stride_c, int64_t batch_size,
+                       const std::vector<sycl::event>& dependencies) {
+    if (alpha != std::trunc(alpha) || beta != std::trunc(beta))
+        throw unimplemented("blas", "gemm_batch", "int8 inputs and int32 output with alpha or beta not an integer");
+    overflow_check(m, n, k, lda, ldb, ldc, stride_a, stride_b, stride_c, batch_size);
+    const int32_t alpha_i = (int32_t)alpha, beta_i = (int32_t)beta;
+    return queue.submit([&](sycl::handler& cgh) {
+        cgh.depends_on(dependencies);
+        onemath_cublas_host_task(cgh, [=](CublasScopedContextHandler& sc) {
+            auto handle = sc.get_handle();
+            cublasStatus_t err;
+#ifdef SYCL_EXT_ONEAPI_ENQUEUE_NATIVE_COMMAND
+            CUBLAS_ERROR_FUNC_T("cublasGemmStridedBatchedEx", cublasGemmStridedBatchedEx, err,
+                                handle, get_cublas_operation(transa), get_cublas_operation(transb),
+                                m, n, k, &alpha_i, a, CUDA_R_8I, lda, stride_a, b, CUDA_R_8I, ldb,
+                                stride_b, &beta_i, c, CUDA_R_32I, ldc, stride_c, batch_size,
+                                CUBLAS_COMPUTE_32I, CUBLAS_GEMM_DEFAULT);
+#else
+            CUBLAS_ERROR_FUNC_T_SYNC("cublasGemmStridedBatchedEx", cublasGemmStridedBatchedEx, err,
+                                     handle, get_cublas_operation(transa),
+                                     get_cublas_operation(transb), m, n, k, &alpha_i, a, CUDA_R_8I,
+                                     lda, stride_a, b, CUDA_R_8I, ldb, stride_b, &beta_i, c,
+                                     CUDA_R_32I, ldc, stride_c, batch_size, CUBLAS_COMPUTE_32I,
+                                     CUBLAS_GEMM_DEFAULT);
+#endif
+        });
+    });
+}
 
 template <typename Ta, typename Tb, typename Tc, typename Ts>
 inline sycl::event gemm_batch_usm_impl(sycl::queue& queue, transpose* transa, transpose* transb,
