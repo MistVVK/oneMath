@@ -78,4 +78,8 @@ if(NOT TARGET ONEMATH::cuBLAS::cuBLAS)
         INTERFACE_LINK_LIBRARIES "Threads::Threads;${CUDA_CUDA_LIBRARY};${CUDA_LIBRARIES}"
     )
   endif()
+  # Windows links a DLL through its import library
+  if(WIN32)
+    set_target_properties(ONEMATH::cuBLAS::cuBLAS PROPERTIES IMPORTED_IMPLIB ${CUDA_cublas_LIBRARY})
+  endif()
 endif()
