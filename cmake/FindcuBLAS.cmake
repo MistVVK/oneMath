@@ -1,5 +1,8 @@
 #==========================================================================
 #  Copyright (C) Codeplay Software Limited
+#  Modified 2026 by MistVVK and the XeStrata contributors: a cross build for Windows gives the CUDA toolkit's
+#  headers and Windows' import libraries itself.
+#
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at
@@ -17,7 +20,14 @@
 #
 #=========================================================================
 
-find_package(CUDA 10.0 REQUIRED)
+# A cross build for Windows from Linux gives CUDA_TOOLKIT_INCLUDE, CUDA_cublas_LIBRARY, CUDA_CUDART_LIBRARY and
+# CUDA_CUDA_LIBRARY (Windows' import libraries, from NVIDIA's redistributable archives): FindCUDA finds the build
+# machine's toolkit, whose libraries are Linux's
+if(CMAKE_CROSSCOMPILING AND WIN32 AND CUDA_cublas_LIBRARY AND CUDA_TOOLKIT_INCLUDE)
+  set(CUDA_LIBRARIES ${CUDA_CUDART_LIBRARY})
+else()
+  find_package(CUDA 10.0 REQUIRED)
+endif()
 get_filename_component(SYCL_BINARY_DIR ${CMAKE_CXX_COMPILER} DIRECTORY)
 # the OpenCL include file from cuda is opencl 1.1 and it is not compatible with DPC++
 # the OpenCL include headers 1.2 onward is required. This is used to bypass NVIDIA OpenCL headers
