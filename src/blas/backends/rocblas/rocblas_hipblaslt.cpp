@@ -232,8 +232,8 @@ bool run(hipStream_t stream, rocblas_operation transa, rocblas_operation transb,
         static const char zero[4] = {};
         if (std::memcmp(beta, zero, 4) == 0 && hipStreamSynchronize(stream) == hipSuccess) {
             hipEvent_t e0, e1;
-            hipEventCreate(&e0);
-            hipEventCreate(&e1);
+            (void)hipEventCreate(&e0);
+            (void)hipEventCreate(&e1);
             float best = 0.f;
             for (auto& cand : plan.candidates) {
                 auto once = [&] {
@@ -242,10 +242,10 @@ bool run(hipStream_t stream, rocblas_operation transa, rocblas_operation transb,
                 };
                 if (!once())
                     continue;
-                hipEventRecord(e0, stream);
+                (void)hipEventRecord(e0, stream);
                 once();
                 once();
-                hipEventRecord(e1, stream);
+                (void)hipEventRecord(e1, stream);
                 float ms = 0.f;
                 if (hipEventSynchronize(e1) != hipSuccess || hipEventElapsedTime(&ms, e0, e1) != hipSuccess)
                     continue;
@@ -254,8 +254,8 @@ bool run(hipStream_t stream, rocblas_operation transa, rocblas_operation transb,
                     plan.algo = cand;
                 }
             }
-            hipEventDestroy(e0);
-            hipEventDestroy(e1);
+            (void)hipEventDestroy(e0);
+            (void)hipEventDestroy(e1);
         }
         std::lock_guard<std::mutex> lock(g_mutex);
         Device* d = device_state(dev);
