@@ -20,6 +20,7 @@
 
 #include "rocblas_hipblaslt.hpp"
 
+#include <hipblaslt/hipblaslt-ext.hpp>
 #include <hipblaslt/hipblaslt.h>
 
 #include <cstdlib>
@@ -28,6 +29,7 @@
 #include <memory>
 #include <mutex>
 #include <tuple>
+#include <vector>
 
 namespace oneapi {
 namespace math {
@@ -40,12 +42,23 @@ namespace {
 // Strata's HIP engine gives it
 constexpr size_t kWorkspace = size_t{32} << 20;
 
-// A shape's descriptors and the algorithm the heuristic picked for it (none: hipBLASLt has no kernel for it)
+// With ONEMATH_HIPBLASLT_TUNE=1, the heuristic's first algorithms a shape's first product times, to keep the fastest:
+// its first is often not (RX 9060 XT, int8 products of 4200 x 3072 to 24576 x 3072 to 12288: the fastest of the first
+// 32 was 20 to 40% faster, the 12th at most).  Only products of kTuneOps operations or more, both outer dimensions 1024
+// or more: a smaller one's time does not pay for the timing.  For a program whose few shapes repeat (an image model's
+// steps); where the shapes change from call to call (an LLM's prompt in chunks, its experts) the timing costs more
+// than it gives (a 32K prompt's prefill 23% slower on the RX 9060 XT), so it is off unless asked for.
+constexpr int kCandidates = 16;
+constexpr double kTuneOps = 32e9;
+
+// A shape's descriptors and the algorithm picked for it (none: hipBLASLt has no kernel for it), with the heuristic's
+// candidates until they are timed
 struct Plan {
     hipblasLtMatmulDesc_t desc = nullptr;
     hipblasLtMatrixLayout_t la = nullptr, lb = nullptr, lc = nullptr;
     hipblasLtMatmulAlgo_t algo{};
-    bool ok = false;
+    std::vector<hipblasLtMatmulAlgo_t> candidates;
+    bool ok = false, tuned = false;
 };
 
 // what a plan depends on: the operations, the inputs' type, the shape, the leading dimensions, the batch and its strides
@@ -61,15 +74,32 @@ struct Types {
 
 // A GPU's handle, plans and a workspace for each stream (streams run at once must not share one); a GPU where the
 // handle cannot be made answers no once and is not asked again
+// a timed choice's key: the plan's with the two outer dimensions rounded up to 1024s (a prompt of a few tokens more
+// takes the algorithm timed for its neighbour) and no strides
+using Choice = std::tuple<int, int, int, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>;
+
 struct Device {
     hipblasLtHandle_t handle = nullptr;
     bool usable = false;
     std::map<Key, Plan> plans;
+    std::map<Choice, int> chosen;   // the solution (hipblaslt_ext::getIndexFromAlgo) timed fastest
     std::map<hipStream_t, void*> workspaces;
 };
 
 std::mutex g_mutex;
 std::map<int, std::unique_ptr<Device>> g_devices;
+
+bool tuning() {
+    static const bool on = [] {
+        const char* v = std::getenv("ONEMATH_HIPBLASLT_TUNE");
+        return v != nullptr && std::strcmp(v, "1") == 0;
+    }();
+    return on;
+}
+
+int64_t bucket(int64_t x) {
+    return x <= 1024 ? x : (x + 1023) / 1024 * 1024;
+}
 
 bool turned_off() {
     static const bool off = [] {
@@ -128,13 +158,16 @@ Plan make_plan(hipblasLtHandle_t handle, rocblas_operation transa, rocblas_opera
         return p;
     size_t ws = kWorkspace;
     hipblasLtMatmulPreferenceSetAttribute(pref, HIPBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &ws, sizeof ws);
-    hipblasLtMatmulHeuristicResult_t r{};
+    std::vector<hipblasLtMatmulHeuristicResult_t> r(tuning() ? kCandidates : 1);
     int found = 0;
-    if (hipblasLtMatmulAlgoGetHeuristic(handle, p.desc, p.la, p.lb, p.lc, p.lc, pref, 1, &r, &found) ==
-            HIPBLAS_STATUS_SUCCESS &&
+    if (hipblasLtMatmulAlgoGetHeuristic(handle, p.desc, p.la, p.lb, p.lc, p.lc, pref, (int)r.size(), r.data(),
+                                        &found) == HIPBLAS_STATUS_SUCCESS &&
         found > 0) {
-        p.algo = r.algo;
+        p.algo = r[0].algo;
         p.ok = true;
+        for (int i = 0; i < found; ++i)
+            p.candidates.push_back(r[(size_t)i].algo);
+        p.tuned = found == 1 || m < 1024 || n < 1024 || 2.0 * (double)m * (double)n * (double)k < kTuneOps;
     }
     hipblasLtMatmulPreferenceDestroy(pref);
     return p;
@@ -153,6 +186,8 @@ bool run(hipStream_t stream, rocblas_operation transa, rocblas_operation transb,
     hipblasLtHandle_t handle;
     void* workspace;
     Plan plan;
+    Choice choice;
+    Key key;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         Device* d = device_state(dev);
@@ -160,13 +195,26 @@ bool run(hipStream_t stream, rocblas_operation transa, rocblas_operation transb,
             return false;
         if (batch == 1)
             stridea = strideb = stridec = 0;
-        const Key key{(int)transa, (int)transb, (int)t.in, m, n, k, lda, ldb, ldc, batch, stridea, strideb, stridec};
+        key = Key{(int)transa, (int)transb, (int)t.in, m, n, k, lda, ldb, ldc, batch, stridea, strideb, stridec};
+        choice = Choice{(int)transa, (int)transb, (int)t.in, bucket(m), bucket(n), k, lda, ldb, ldc, batch};
         auto it = d->plans.find(key);
-        if (it == d->plans.end())
+        if (it == d->plans.end()) {
             it = d->plans
                      .emplace(key, make_plan(d->handle, transa, transb, m, n, k, lda, ldb, ldc, t, batch,
                                              stridea, strideb, stridec))
                      .first;
+            // a neighbouring shape's timed choice, where the heuristic offers it here too
+            Plan& p = it->second;
+            const auto c = d->chosen.find(choice);
+            if (p.ok && !p.tuned && c != d->chosen.end()) {
+                for (auto& a : p.candidates)
+                    if (hipblaslt_ext::getIndexFromAlgo(a) == c->second) {
+                        p.algo = a;
+                        break;
+                    }
+                p.tuned = true;
+            }
+        }
         if (!it->second.ok)
             return false;
         void*& ws = d->workspaces[stream];
@@ -177,6 +225,45 @@ bool run(hipStream_t stream, rocblas_operation transa, rocblas_operation transb,
         handle = d->handle;
         workspace = ws;
         plan = it->second;
+    }
+    if (!plan.tuned) {
+        // the first product of this shape: each candidate timed on it (twice, after one run), where C is only
+        // written (beta 0: the runs leave it as the last one leaves it, the product's own result)
+        static const char zero[4] = {};
+        if (std::memcmp(beta, zero, 4) == 0 && hipStreamSynchronize(stream) == hipSuccess) {
+            hipEvent_t e0, e1;
+            hipEventCreate(&e0);
+            hipEventCreate(&e1);
+            float best = 0.f;
+            for (auto& cand : plan.candidates) {
+                auto once = [&] {
+                    return hipblasLtMatmul(handle, plan.desc, alpha, a, plan.la, b, plan.lb, beta, c, plan.lc, c,
+                                           plan.lc, &cand, workspace, kWorkspace, stream) == HIPBLAS_STATUS_SUCCESS;
+                };
+                if (!once())
+                    continue;
+                hipEventRecord(e0, stream);
+                once();
+                once();
+                hipEventRecord(e1, stream);
+                float ms = 0.f;
+                if (hipEventSynchronize(e1) != hipSuccess || hipEventElapsedTime(&ms, e0, e1) != hipSuccess)
+                    continue;
+                if (best == 0.f || ms < best) {
+                    best = ms;
+                    plan.algo = cand;
+                }
+            }
+            hipEventDestroy(e0);
+            hipEventDestroy(e1);
+        }
+        std::lock_guard<std::mutex> lock(g_mutex);
+        Device* d = device_state(dev);
+        Plan& p = d->plans[key];
+        p.algo = plan.algo;
+        p.tuned = true;
+        p.candidates.clear();
+        d->chosen[choice] = hipblaslt_ext::getIndexFromAlgo(plan.algo);
     }
     return hipblasLtMatmul(handle, plan.desc, alpha, a, plan.la, b, plan.lb, beta, c, plan.lc, c, plan.lc,
                            &plan.algo, workspace, kWorkspace, stream) == HIPBLAS_STATUS_SUCCESS;
