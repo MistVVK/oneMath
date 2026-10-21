@@ -1,6 +1,8 @@
 /***************************************************************************
 *  Copyright (C) Codeplay Software Limited
 *  Copyright (C) 2022 Heidelberg University, Engineering Mathematics and Computing Lab (EMCL) and Computing Centre (URZ)
+*  Modified 2026 by MistVVK and the XeStrata contributors: the strided batch GEMM with int8 inputs and int32 output,
+*  through hipBLASLt where it has kernels for the GPU, else rocBLAS.
 *
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
@@ -24,6 +26,11 @@
 
 #include "oneapi/math/exceptions.hpp"
 #include "oneapi/math/blas/detail/rocblas/onemath_blas_rocblas.hpp"
+#ifdef ONEMATH_ROCBLAS_HIPBLASLT
+#include "rocblas_hipblaslt.hpp"
+#endif
+
+#include <cmath>
 
 // Helper Functions
 
@@ -920,9 +927,43 @@ GEMM_STRIDED_BATCH_LAUNCHER_USM(sycl::half, sycl::half, float, float)
     }
 
 GEMM_STRIDED_BATCH_LAUNCHER_USM(std::int8_t, std::int8_t, float, float)
-GEMM_STRIDED_BATCH_LAUNCHER_USM(std::int8_t, std::int8_t, std::int32_t, float)
 
 #undef GEMM_STRIDED_BATCH_LAUNCHER_USM
+
+// int8 inputs, int32 output: the scaling in int32, as rocBLAS and hipBLASLt take it, so alpha and beta must be
+// integers
+sycl::event gemm_batch(sycl::queue& queue, transpose transa, transpose transb, int64_t m, int64_t n,
+                       int64_t k, float alpha, const std::int8_t* a, int64_t lda, int64_t stridea,
+                       const std::int8_t* b, int64_t ldb, int64_t strideb, float beta, std::int32_t* c,
+                       int64_t ldc, int64_t stridec, int64_t batch_size,
+                       const std::vector<sycl::event>& dependencies) {
+    if (alpha != std::trunc(alpha) || beta != std::trunc(beta))
+        throw unimplemented("blas", "gemm_batch", "int8 inputs and int32 output with alpha or beta not an integer");
+    overflow_check(m, n, k, lda, ldb, ldc, stridea, strideb, stridec, batch_size);
+    const int32_t alpha_i = (int32_t)alpha, beta_i = (int32_t)beta;
+    return queue.submit([&](sycl::handler& cgh) {
+        cgh.depends_on(dependencies);
+        onemath_rocblas_host_task(cgh, queue, [=](RocblasScopedContextHandler& sc) {
+            auto handle = sc.get_handle(queue);
+#ifdef ONEMATH_ROCBLAS_HIPBLASLT
+            hipStream_t stream;
+            if (rocblas_get_stream(handle, &stream) == rocblas_status_success &&
+                hipblaslt_gemm_i8(stream, get_rocblas_operation(transa), get_rocblas_operation(transb), m,
+                                  n, k, alpha_i, a, lda, stridea, b, ldb, strideb, beta_i, c, ldc, stridec,
+                                  batch_size))
+                return;
+#endif
+            rocblas_status err;
+            rocblas_native_func(rocblas_gemm_strided_batched_ex, err, handle,
+                                get_rocblas_operation(transa), get_rocblas_operation(transb), m, n,
+                                k, &alpha_i, a, rocblas_datatype_i8_r, lda, stridea, b,
+                                rocblas_datatype_i8_r, ldb, strideb, &beta_i, c,
+                                rocblas_datatype_i32_r, ldc, stridec, c, rocblas_datatype_i32_r, ldc,
+                                stridec, batch_size, rocblas_datatype_i32_r,
+                                rocblas_gemm_algo_standard, 0, rocblas_gemm_flags_none);
+        });
+    });
+}
 
 template <typename Ta, typename Tb, typename Tc, typename Ts>
 inline sycl::event gemm_batch_usm_impl(sycl::queue& queue, transpose* transa, transpose* transb,
@@ -2099,9 +2140,18 @@ GEMM_STRIDED_BATCH_LAUNCHER_USM(sycl::half, sycl::half, float, float)
     }
 
 GEMM_STRIDED_BATCH_LAUNCHER_USM(std::int8_t, std::int8_t, float, float)
-GEMM_STRIDED_BATCH_LAUNCHER_USM(std::int8_t, std::int8_t, std::int32_t, float)
 
 #undef GEMM_STRIDED_BATCH_LAUNCHER_USM
+
+// int8 inputs, int32 output: through the column-major one, as the other types
+sycl::event gemm_batch(sycl::queue& queue, transpose transa, transpose transb, int64_t m, int64_t n,
+                       int64_t k, float alpha, const std::int8_t* a, int64_t lda, int64_t stridea,
+                       const std::int8_t* b, int64_t ldb, int64_t strideb, float beta, std::int32_t* c,
+                       int64_t ldc, int64_t stridec, int64_t batch_size,
+                       const std::vector<sycl::event>& dependencies) {
+    return gemm_batch_strided_usm_impl(queue, transa, transb, m, n, k, alpha, a, lda, stridea, b, ldb,
+                                       strideb, beta, c, ldc, stridec, batch_size, dependencies);
+}
 
 template <typename Ta, typename Tb, typename Tc, typename Ts>
 inline sycl::event gemm_batch_usm_impl(sycl::queue& queue, transpose* transa, transpose* transb,

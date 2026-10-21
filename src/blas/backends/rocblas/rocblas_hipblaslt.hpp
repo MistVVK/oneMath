@@ -18,8 +18,8 @@
 *
 **************************************************************************/
 
-// The rocBLAS backend's GEMM with 16-bit inputs and FP32 output through hipBLASLt, where hipBLASLt has kernels for the
-// GPU: rocBLAS has no tuned kernels for some GPUs (RDNA4's gfx12 in ROCm 7.1, where its generic ones ran at a fifteenth
+// The rocBLAS backend's GEMMs with 16-bit inputs and FP32 output, and with int8 inputs and int32 output, through
+// hipBLASLt, where hipBLASLt has kernels for the GPU: rocBLAS has no tuned kernels for some GPUs (RDNA4's gfx12 in ROCm 7.1, where its generic ones ran at a fifteenth
 // of hipBLASLt's speed), and AMD gives those GPUs' matrix products to hipBLASLt.  ONEMATH_HIPBLASLT=0 turns it off.
 
 #ifndef _ROCBLAS_HIPBLASLT_HPP_
@@ -42,6 +42,14 @@ namespace rocblas {
 bool hipblaslt_gemm(hipStream_t stream, rocblas_operation transa, rocblas_operation transb, int64_t m,
                     int64_t n, int64_t k, float alpha, const void* a, int64_t lda, const void* b,
                     int64_t ldb, float beta, float* c, int64_t ldc, hipDataType type);
+
+// The same for int8 A and B and int32 C with int32 accumulation and scaling, batch_size products whose matrices lie
+// stridea, strideb and stridec elements apart: rocBLAS's own int8 kernels for some GPUs are generic ones (gfx12 in
+// ROCm 7.1: a tenth of hipBLASLt's speed).
+bool hipblaslt_gemm_i8(hipStream_t stream, rocblas_operation transa, rocblas_operation transb, int64_t m,
+                       int64_t n, int64_t k, int32_t alpha, const void* a, int64_t lda, int64_t stridea,
+                       const void* b, int64_t ldb, int64_t strideb, int32_t beta, int32_t* c,
+                       int64_t ldc, int64_t stridec, int64_t batch_size);
 
 } // namespace rocblas
 } // namespace blas
