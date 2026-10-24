@@ -1,5 +1,7 @@
 #===============================================================================
 # Copyright 2023 Intel Corporation
+# Modified 2026 by MistVVK and the XeStrata contributors: on Windows, the SYCL link without
+# -fsycl-allow-device-image-dependencies.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -554,8 +556,14 @@ endif()
 if(SYCL_COMPILER)
   list(APPEND MKL_SYCL_COPT "-fsycl")
   list(APPEND MKL_SYCL_LOPT "-fsycl")
-  # Enable Device API accessibility from dynamic libraries
-  list(APPEND MKL_SYCL_LOPT "-fsycl-allow-device-image-dependencies")
+  # Enable Device API accessibility from dynamic libraries.  Not on Windows: there intel/llvm v7.2.0's driver turns it
+  # into an /INCLUDE:__imp_<a symbol> for every library of the link, the MSVC runtime's among them - time_get<...>::_Getvals
+  # of msvcprt.lib (which every SYCL object also defines, sycl.hpp reaching <xloctime>: a duplicate), HUGE of oldnames.lib
+  # and a 32-bit _set_invalid_parameter_handler of msvcrt.lib (not resolved) - and a backend's DLL does not link.  The
+  # backends' device code calls no device function of another library.
+  if(NOT WIN32)
+    list(APPEND MKL_SYCL_LOPT "-fsycl-allow-device-image-dependencies")
+  endif()
 endif()
 
 # For OpenMP Offload
