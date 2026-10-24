@@ -2,7 +2,8 @@
 # Copyright 2020-2022 Intel Corporation
 # Copyright (C) 2022 Heidelberg University, Engineering Mathematics and Computing Lab (EMCL) and Computing Centre (URZ)
 # Modified 2026 by MistVVK and the XeStrata contributors: Windows built with the GNU-style clang++ driver (a cross
-# build from Linux) takes the compile and link lines and the SYCL target of the other platforms.
+# build from Linux) takes the compile and link lines and the SYCL target of the other platforms, and oneMKL's SYCL
+# link there no -fsycl-allow-device-image-dependencies.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -279,6 +280,26 @@ if(ENABLE_MKLGPU_BACKEND OR ENABLE_MKLCPU_BACKEND)
                 ${MKL_ROOT}/lib/cmake/mkl
                 $ENV{MKLROOT}
                 ${PROJECT_SOURCE_DIR}/cmake/mkl)
+  # Windows: oneMKL's own MKLConfig links its SYCL targets with -fsycl-allow-device-image-dependencies, which intel/llvm
+  # v7.2.0's driver turns into an /INCLUDE:__imp_<a symbol> of every library of the link, the MSVC runtime's among them,
+  # and a backend's DLL does not link (cmake/mkl/MKLConfig.cmake leaves it out there).  The backends' device code calls
+  # no device function of another library.
+  if(WIN32)
+    foreach(mkl_target MKL::MKL_SYCL MKL::MKL_SYCL::BLAS MKL::MKL_SYCL::LAPACK MKL::MKL_SYCL::DFT MKL::MKL_SYCL::RNG
+                       MKL::MKL_SYCL::SPARSE MKL::MKL_DPCPP)
+      if(TARGET ${mkl_target})
+        get_target_property(mkl_real ${mkl_target} ALIASED_TARGET)
+        if(NOT mkl_real)
+          set(mkl_real ${mkl_target})
+        endif()
+        get_target_property(mkl_libs ${mkl_real} INTERFACE_LINK_LIBRARIES)
+        if(mkl_libs)
+          list(REMOVE_ITEM mkl_libs -fsycl-allow-device-image-dependencies)
+          set_target_properties(${mkl_real} PROPERTIES INTERFACE_LINK_LIBRARIES "${mkl_libs}")
+        endif()
+      endif()
+    endforeach()
+  endif()
 endif()
 
 # Set output directories for the project
